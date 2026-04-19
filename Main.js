@@ -1,211 +1,209 @@
-// electron/main.js
-/**
+# Main.py
 
-- Process principal Electron.
-- Configure la fenêtre en overlay transparent, toujours au premier plan.
-  */
+# JARVIS — Point d’entrée principal, aucune clé API requise
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } = require(‘electron’);
-const path = require(‘path’);
-const { spawn } = require(‘child_process’);
+import asyncio
+import json
+import logging
+import time
+import sys
+import os
+from pathlib import Path
 
-let mainWindow = null;
-let tray = null;
-let backendProcess = null;
+logging.basicConfig(
+level=logging.INFO,
+format=’%(asctime)s [%(name)s] %(levelname)s: %(message)s’,
+handlers=[
+logging.StreamHandler(sys.stdout),
+logging.FileHandler(“jarvis.log”, encoding=‘utf-8’),
+]
+)
+logger = logging.getLogger(“jarvis”)
 
-// ── Fenêtre principale ────────────────────────────────────────────────────────
-function createWindow() {
-mainWindow = new BrowserWindow({
-width: 900,
-height: 700,
+# Les fichiers sont tous à la racine du projet
 
-```
-// Mode overlay : transparent, pas de frame
-transparent: true,
-frame: false,
+sys.path.insert(0, str(Path(**file**).parent))
 
-// Toujours au dessus des autres fenêtres
-alwaysOnTop: true,
+from Config import CONFIG
+from Clap_detector import ClapDetector
+from Audio_engine import AudioEngine
+from Commander import Commander
+from Ai_engine import AIEngine
 
-// Centré sur l'écran
-center: true,
+try:
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import uvicorn
+except ImportError:
+logger.error(“Installez FastAPI : pip install fastapi uvicorn”)
+sys.exit(1)
 
-// Permet le clic à travers les zones transparentes
-// (désactivé pour pouvoir interagir avec l'input)
-// setIgnoreMouseEvents(true, { forward: true })
+# ── Init ──────────────────────────────────────────────────────────────────────
 
-webPreferences: {
-  preload: path.join(__dirname, 'preload.js'),
-  nodeIntegration: false,
-  contextIsolation: true,
-},
+app = FastAPI(title=“JARVIS”, version=“1.0.0”)
 
-// Pas dans la barre des tâches
-skipTaskbar: false,
+clap_detector = ClapDetector(CONFIG.audio)
+commander     = Commander(CONFIG)
+ai_engine     = AIEngine(CONFIG)
+speech_engine = None
+audio_engine  = None
 
-// Titre
-title: 'JARVIS',
+connected_clients: list = []
 
-// Icône
-// icon: path.join(__dirname, 'assets/icon.png'),
+# ── WebSocket helpers ─────────────────────────────────────────────────────────
 
-// Vibrancy (macOS) - effet verre
-vibrancy: 'ultra-dark',
-visualEffectState: 'active',
+async def broadcast(message: dict):
+data = json.dumps(message)
+dead = []
+for client in connected_clients:
+try:
+await client.send_text(data)
+except Exception:
+dead.append(client)
+for c in dead:
+connected_clients.remove(c)
 
-// Rounded corners (macOS)
-roundedCorners: true,
-```
+async def send_status(status: str, data: dict = None):
+await broadcast({“type”: “status”, “status”: status, “data”: data or {}, “timestamp”: time.time()})
 
-});
+# ── Logique principale ────────────────────────────────────────────────────────
 
-// Charge l’UI
-mainWindow.loadFile(path.join(__dirname, ‘../frontend/index.html’));
+def on_double_clap():
+logger.info(“Double clap détecté — activation JARVIS”)
+asyncio.run_coroutine_threadsafe(handle_wake(), asyncio.get_event_loop())
 
-// Ouvre DevTools en dev
-if (process.argv.includes(’–dev’)) {
-mainWindow.webContents.openDevTools({ mode: ‘detach’ });
-}
+async def handle_wake():
+await send_status(“waking”, {})
+await speak(“Je vous écoute.”)
+if audio_engine:
+audio_engine.activate_voice_listening()
+await send_status(“listening”, {})
 
-// Gestion de la fermeture : masquer plutôt que quitter
-mainWindow.on(‘close’, (e) => {
-if (!app.isQuitting) {
-e.preventDefault();
-mainWindow.hide();
-}
-});
+def on_audio_level(level: float):
+asyncio.run_coroutine_threadsafe(
+broadcast({“type”: “audio_level”, “level”: level}),
+asyncio.get_event_loop()
+)
 
-mainWindow.on(‘closed’, () => { mainWindow = null; });
-}
-
-// ── System Tray ───────────────────────────────────────────────────────────────
-function createTray() {
-// Icône simple (16x16 blanc)
-const icon = nativeImage.createEmpty();
-tray = new Tray(icon);
-
-const menu = Menu.buildFromTemplate([
-{ label: ‘JARVIS v1.0’, enabled: false },
-{ type: ‘separator’ },
-{ label: ‘Afficher / Masquer’, click: toggleWindow },
-{ label: ‘Paramètres’, click: openSettings },
-{ type: ‘separator’ },
-{ label: ‘Quitter’, click: quitApp },
-]);
-
-tray.setContextMenu(menu);
-tray.setToolTip(‘JARVIS — Assistant IA’);
-tray.on(‘click’, toggleWindow);
-}
-
-function toggleWindow() {
-if (!mainWindow) return;
-if (mainWindow.isVisible()) {
-mainWindow.hide();
-} else {
-mainWindow.show();
-mainWindow.focus();
-}
-}
-
-function openSettings() {
-// TODO: ouvrir une fenêtre de paramètres
-}
-
-function quitApp() {
-app.isQuitting = true;
-stopBackend();
-app.quit();
-}
-
-// ── Backend Python ─────────────────────────────────────────────────────────────
-function startBackend() {
-const pythonScript = path.join(__dirname, ‘../backend/main.py’);
-const python = process.platform === ‘win32’ ? ‘python’ : ‘python3’;
-
-console.log(`Démarrage backend: ${python} ${pythonScript}`);
-
-backendProcess = spawn(python, [pythonScript], {
-stdio: [‘ignore’, ‘pipe’, ‘pipe’],
-detached: false,
-});
-
-backendProcess.stdout.on(‘data’, (data) => {
-process.stdout.write(`[Backend] ${data}`);
-});
-
-backendProcess.stderr.on(‘data’, (data) => {
-process.stderr.write(`[Backend ERR] ${data}`);
-});
-
-backendProcess.on(‘close’, (code) => {
-console.log(`Backend arrêté (code: ${code})`);
-backendProcess = null;
+async def on_command(text: str):
+logger.info(f”Commande : ‘{text}’”)
+await send_status(“processing”, {“command”: text})
 
 ```
-// Redémarre si crash inattendu
-if (code !== 0 && !app.isQuitting) {
-  console.log('Redémarrage du backend dans 3s...');
-  setTimeout(startBackend, 3000);
-}
+intent = await ai_engine.process(text)
+result_msg = intent.response
+
+if intent.action == "launch_app" and intent.target:
+    result = await commander.launch_app(intent.target)
+    if not result.success:
+        result_msg = f"Impossible de lancer {intent.target} : {result.error}"
+    else:
+        await send_status("action", {"target": intent.target})
+
+elif intent.action == "system_info":
+    info = await commander.get_system_info()
+    if info:
+        result_msg = (
+            f"CPU à {info['cpu_percent']}%, "
+            f"mémoire à {info['memory']['percent']}%."
+        )
+
+elif intent.action == "open_file" and intent.target:
+    result = await commander.open_file(intent.target)
+    if not result.success:
+        result_msg = result.error
+
+elif intent.action == "quit":
+    await speak("À bientôt.")
+    await send_status("sleeping", {})
+    return
+
+await speak(result_msg)
+await send_status("idle", {"response": result_msg})
 ```
 
-});
+async def speak(text: str):
+logger.info(f”Réponse : ‘{text}’”)
+await broadcast({“type”: “speak”, “text”: text})
+if speech_engine:
+loop = asyncio.get_event_loop()
+await loop.run_in_executor(None, speech_engine.speak, text)
 
-backendProcess.on(‘error’, (err) => {
-console.error(‘Erreur backend:’, err.message);
-// Continuer sans backend (mode démo)
-});
-}
+# ── Audio ─────────────────────────────────────────────────────────────────────
 
-function stopBackend() {
-if (backendProcess) {
-backendProcess.kill();
-backendProcess = null;
-}
-}
+def init_audio():
+global audio_engine
+clap_detector.on_double_clap(on_double_clap)
+audio_engine = AudioEngine(CONFIG, clap_detector, speech_engine)
+audio_engine.on_audio_level(on_audio_level)
 
-// ── IPC handlers ──────────────────────────────────────────────────────────────
-ipcMain.on(‘minimize’, () => mainWindow?.minimize());
-ipcMain.on(‘hide’, () => mainWindow?.hide());
-ipcMain.on(‘quit’, quitApp);
+```
+def command_handler(text: str):
+    asyncio.run_coroutine_threadsafe(on_command(text), asyncio.get_event_loop())
 
-// ── Raccourci global ──────────────────────────────────────────────────────────
-const { globalShortcut } = require(‘electron’);
+audio_engine.on_command(command_handler)
+audio_engine.start()
+logger.info("Moteur audio démarré")
+```
 
-function registerShortcuts() {
-// Ctrl+Shift+J (ou Cmd+Shift+J sur Mac) pour afficher/masquer
-const shortcut = process.platform === ‘darwin’ ? ‘Cmd+Shift+J’ : ‘Ctrl+Shift+J’;
+# ── WebSocket ─────────────────────────────────────────────────────────────────
 
-const ok = globalShortcut.register(shortcut, toggleWindow);
-if (!ok) console.warn(‘Raccourci global non enregistré’);
-else console.log(`Raccourci: ${shortcut} → Afficher/Masquer JARVIS`);
-}
+@app.websocket(”/ws”)
+async def ws_endpoint(websocket: WebSocket):
+await websocket.accept()
+connected_clients.append(websocket)
+logger.info(f”Client connecté ({len(connected_clients)} total)”)
 
-// ── App lifecycle ─────────────────────────────────────────────────────────────
-app.whenReady().then(() => {
-createWindow();
-// createTray(); // Décommenter pour activer la tray
-registerShortcuts();
+```
+await websocket.send_text(json.dumps({
+    "type": "init",
+    "status": "ready",
+    "config": {"name": CONFIG.name, "mode": CONFIG.ai.mode}
+}))
 
-// Démarre le backend Python
-startBackend();
+try:
+    while True:
+        data = await websocket.receive_text()
+        msg = json.loads(data)
+        await handle_msg(msg)
+except WebSocketDisconnect:
+    connected_clients.remove(websocket)
+except Exception as e:
+    logger.error(f"WebSocket erreur : {e}")
+    if websocket in connected_clients:
+        connected_clients.remove(websocket)
+```
 
-app.on(‘activate’, () => {
-if (!mainWindow) createWindow();
-else mainWindow.show();
-});
-});
+async def handle_msg(msg: dict):
+t = msg.get(“type”)
+if t == “text_command”:
+text = msg.get(“text”, “”).strip()
+if text:
+await on_command(text)
+elif t == “simulate_clap”:
+await handle_wake()
+elif t == “ping”:
+await broadcast({“type”: “pong”, “timestamp”: time.time()})
 
-app.on(‘window-all-closed’, () => {
-if (process.platform !== ‘darwin’) app.quit();
-});
+# ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-app.on(‘will-quit’, () => {
-globalShortcut.unregisterAll();
-stopBackend();
-});
+@app.on_event(“startup”)
+async def startup():
+logger.info(”=” * 40)
+logger.info(”  JARVIS — Démarrage (mode offline)”)
+logger.info(”=” * 40)
+loop = asyncio.get_event_loop()
+await loop.run_in_executor(None, init_audio)
+logger.info(f”WebSocket prêt → ws://localhost:{CONFIG.server.port}/ws”)
 
-app.on(‘before-quit’, () => {
-app.isQuitting = true;
-});
+@app.on_event(“shutdown”)
+async def shutdown():
+if audio_engine:
+audio_engine.stop()
+logger.info(“JARVIS arrêté.”)
+
+@app.get(”/health”)
+async def health():
+return {“status”: “ok”, “mode”: CONFIG.ai.mode}
+
+if **name** == “**main**”:
+uvicorn.run(app, host=CONFIG.server.host, port=CONFIG.server.port, log_level=“warning”)
