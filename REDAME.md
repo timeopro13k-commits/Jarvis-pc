@@ -35,26 +35,23 @@ Double clap → Activation → Commande vocale → Action système + Réponse IA
 ## Architecture
 
 ```
-jarvis/
-├── backend/                    # Python — FastAPI + asyncio
-│   ├── main.py                 # Serveur WebSocket, orchestration
-│   ├── config.py               # Configuration centrale
-│   └── core/
-│       ├── clap_detector.py    # Détection double clap (RMS + transitoire)
-│       ├── audio_engine.py     # Thread audio dédié, VAD, micro
-│       ├── ai_engine.py        # Interface LLM modulaire
-│       └── commander.py        # Exécution sécurisée de commandes
-│
-├── frontend/                   # HTML + WebGL GLSL
-│   └── index.html              # UI complète (shader + orb + visualiseur)
-│
-└── electron/                   # Wrapper desktop
-    ├── main.js                 # Fenêtre overlay, tray, raccourci global
-    ├── preload.js              # Bridge sécurisé renderer/main
-    └── package.json
+jarvis-pc/                      # Tous les fichiers à la racine
+├── Ai engine.py                # Interface LLM modulaire
+├── Audio engine.py             # Thread audio dédié, VAD, micro
+├── Clap detector.py            # Détection double clap (RMS + transitoire)
+├── Commander.py                # Exécution sécurisée de commandes
+├── Config.py                   # Configuration centrale
+├── Index.html                  # UI complète (shader WebGL + orb + visualiseur)
+├── Main.js                     # Electron — fenêtre overlay, raccourci global
+├── Main.py                     # Serveur WebSocket, orchestration
+├── README.md                   # Ce fichier
+├── Start.sh                    # Script de démarrage Linux/macOS
+└── requirements.txt            # Dépendances Python
 ```
 
 **Communication** : WebSocket local (`ws://localhost:8765/ws`) — bidirectionnel, faible latence, JSON.
+
+> ⚠️ Les fichiers sont à la racine du repo. Les imports Python doivent donc utiliser les noms exacts tels qu’ils apparaissent sur GitHub (ex: `import Commander` et non `from core.commander import ...`).
 
 -----
 
@@ -82,14 +79,14 @@ winget install ffmpeg
 
 ## Installation
 
-### 1. Cloner et préparer
+### 1. Cloner le repo
 
 ```bash
 git clone https://github.com/vous/jarvis-pc.git
 cd jarvis-pc
 ```
 
-### 2. Backend Python
+### 2. Dépendances Python
 
 ```bash
 pip install -r requirements.txt
@@ -101,19 +98,17 @@ pip install -r requirements.txt
 > pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 > ```
 
-### 3. Frontend Electron
+### 3. Dépendances Electron
 
 ```bash
-cd electron
-npm install
-cd ..
+npm install electron
 ```
 
 -----
 
 ## Configuration
 
-Tout se configure dans `backend/config.py`.
+Tout se configure dans `Config.py`.
 
 ### Clé OpenAI (recommandé)
 
@@ -121,21 +116,11 @@ Tout se configure dans `backend/config.py`.
 export OPENAI_API_KEY="sk-..."
 ```
 
-Ou directement dans `config.py` :
-
-```python
-ai: AIConfig = field(default_factory=lambda: AIConfig(
-    mode="openai",
-    openai_api_key="sk-..."
-))
-```
-
 ### Mode offline (aucune API)
 
 ```python
-ai: AIConfig = field(default_factory=lambda: AIConfig(
-    mode="offline"  # Matching par patterns locaux
-))
+# Dans Config.py
+mode="offline"  # Matching par patterns locaux, aucune connexion requise
 ```
 
 ### Mode LLM local (Ollama)
@@ -146,57 +131,50 @@ ollama pull mistral
 ```
 
 ```python
-ai: AIConfig = field(default_factory=lambda: AIConfig(
-    mode="local_llm",
-    local_llm_model="mistral"
-))
+# Dans Config.py
+mode="local_llm"
+local_llm_model="mistral"
 ```
 
-### Sensibilité de détection des claps
+### Sensibilité des claps
 
 ```python
-audio: AudioConfig = field(default_factory=lambda: AudioConfig(
-    clap_threshold=0.35,      # 0.1 = très sensible, 0.9 = peu sensible
-    clap_max_interval=0.6,    # Secondes max entre les 2 claps
-))
+# Dans Config.py
+clap_threshold=0.35      # 0.1 = très sensible, 0.9 = peu sensible
+clap_max_interval=0.6    # Secondes max entre les 2 claps
 ```
 
 ### Applications autorisées
 
 ```python
-security: SecurityConfig = field(default_factory=lambda: SecurityConfig(
-    allowed_apps=["chrome", "firefox", "code", "spotify", ...]
-))
+# Dans Config.py
+allowed_apps=["chrome", "firefox", "code", "spotify", ...]
 ```
 
 -----
 
 ## Lancement
 
-### Interface complète (Electron + Backend)
+### Interface complète (Electron)
 
 ```bash
-chmod +x start.sh
-./start.sh
+chmod +x Start.sh
+./Start.sh
 ```
 
-### Test rapide sans Electron (navigateur)
+### Test rapide dans le navigateur (sans Electron)
 
 ```bash
 # Terminal 1 — Backend
-cd backend && python main.py
+python Main.py
 
-# Terminal 2 — Ouvrir l'UI dans le navigateur
-open frontend/index.html
+# Terminal 2 — Ouvrir l'UI
+open Index.html          # macOS
+xdg-open Index.html      # Linux
+start Index.html         # Windows
 ```
 
 L’UI fonctionne en **mode démo** sans backend (animation WebGL + input texte, sans voix ni commandes système).
-
-### Backend seul (debug)
-
-```bash
-cd backend && python main.py
-```
 
 ### Raccourci global
 
@@ -223,7 +201,7 @@ Claquez des mains deux fois rapidement (intervalle 0.1–0.6 sec). L’orbe pass
 
 ### Input texte
 
-Tapez directement dans le champ en bas de l’interface.
+Tapez directement dans le champ en bas de l’interface — alternative si pas de micro.
 
 ### Simulation (sans micro)
 
@@ -233,12 +211,11 @@ Cliquez sur l’orbe central pour simuler un double clap.
 
 ## Sécurité
 
-- **Liste blanche** : seules les applications explicitement listées dans `allowed_apps` peuvent être lancées.
+- **Liste blanche** : seules les applications listées dans `Config.py` peuvent être lancées.
 - **Accès fichiers restreint** : seuls les fichiers dans le dossier home (`~/`) sont accessibles.
-- **Actions critiques** : les commandes comme `rm`, `shutdown`, `format` sont bloquées par défaut et nécessitent une confirmation explicite.
+- **Actions critiques** : `rm`, `shutdown`, `format` sont bloquées par défaut.
 - **Journalisation** : toutes les actions sont écrites dans `jarvis.log`.
-- **Pas d’accès réseau** depuis les commandes utilisateur.
-- **IPC sécurisé** : `contextIsolation: true` dans Electron, API minimale exposée via `preload.js`.
+- **IPC sécurisé** : `contextIsolation: true` dans Electron.
 
 -----
 
@@ -246,35 +223,22 @@ Cliquez sur l’orbe central pour simuler un double clap.
 
 ### Changer la personnalité
 
-Dans `config.py`, modifiez `personality` :
+Dans `Config.py` :
 
 ```python
-personality: str = """Tu es JARVIS, un assistant sarcastique mais redoutablement efficace.
-Tu réponds toujours en une seule phrase incisive.
-Tu appelles l'utilisateur "patron"."""
+personality = """Tu es JARVIS, sarcastique mais efficace.
+Tu réponds en une seule phrase. Tu appelles l'utilisateur "patron"."""
 ```
 
-### Ajouter un plugin
+### Ajouter une commande
 
-Créez `backend/plugins/mon_plugin.py` :
+Dans `Ai engine.py`, section `OFFLINE_PATTERNS` :
 
 ```python
-class MonPlugin:
-    name = "mon_plugin"
-    
-    async def execute(self, intent, commander) -> str:
-        if "météo" in intent.target:
-            # votre logique
-            return "Il fait beau."
-        return None
+(r"(?:météo|temps qu'il fait)", "get_weather"),
 ```
 
-Enregistrez-le dans `main.py` :
-
-```python
-from plugins.mon_plugin import MonPlugin
-plugins = [MonPlugin()]
-```
+Puis gérez l’action dans `Main.py`.
 
 -----
 
@@ -301,16 +265,16 @@ plugins = [MonPlugin()]
 python -c "import sounddevice; print(sounddevice.query_devices())"
 ```
 
-Vérifiez que votre micro est bien sélectionné comme périphérique par défaut.
+Vérifiez que votre micro est bien le périphérique par défaut.
 
 **Whisper télécharge le modèle au premier lancement**
-C’est normal. Le modèle `base` (~150 Mo) est téléchargé une seule fois dans `~/.cache/whisper/`.
+Normal. Le modèle `base` (~150 Mo) est téléchargé une seule fois dans `~/.cache/whisper/`.
 
 **WebSocket ne se connecte pas**
-Vérifiez que le backend tourne bien (`python backend/main.py`) avant de lancer l’UI.
+Lancez d’abord `python Main.py`, puis ouvrez `Index.html`.
 
 **Claps non détectés**
-Diminuez `clap_threshold` dans `config.py` (essayez `0.2`). Évitez les environnements très brueux.
+Diminuez `clap_threshold` dans `Config.py` (essayez `0.2`).
 
 -----
 
@@ -319,9 +283,8 @@ Diminuez `clap_threshold` dans `config.py` (essayez `0.2`). Évitez les environn
 - [ ] Hotword personnalisé (“Hey Jarvis”) via Porcupine
 - [ ] Plugin agenda (Google Calendar)
 - [ ] Plugin domotique (Home Assistant)
-- [ ] Mode multimodal (analyse d’image via capture d’écran)
-- [ ] Mémorisation des préférences utilisateur
-- [ ] Build Electron packagé (`.dmg` / `.exe` / `.AppImage`)
+- [ ] Mode multimodal (capture d’écran + analyse image)
+- [ ] Build packagé (`.dmg` / `.exe` / `.AppImage`)
 
 -----
 
