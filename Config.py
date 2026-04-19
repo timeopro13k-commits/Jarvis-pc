@@ -1,4 +1,4 @@
-# backend/config.py
+# Config.py
 
 “””
 Configuration centrale de JARVIS.
@@ -14,23 +14,38 @@ class AudioConfig:
 sample_rate: int = 44100
 channels: int = 1
 chunk_size: int = 1024
-# Détection de claps
 clap_threshold: float = 0.35       # Sensibilité (0.1 = très sensible, 0.9 = peu sensible)
 clap_min_interval: float = 0.1     # Secondes min entre 2 claps
-clap_max_interval: float = 0.6     # Secondes max entre 2 claps (double clap)
-clap_cooldown: float = 1.5         # Pause après détection pour éviter les faux positifs
+clap_max_interval: float = 0.6     # Secondes max entre 2 claps
+clap_cooldown: float = 1.5         # Pause après détection
 
 @dataclass
 class AIConfig:
-# Mode: “openai” | “offline” | “local_llm”
-mode: str = “openai”
-openai_api_key: str = os.getenv(“OPENAI_API_KEY”, “”)
-model: str = “gpt-4o-mini”
-# URL pour LLM local (ex: Ollama)
-local_llm_url: str = “http://localhost:11434/api/generate”
-local_llm_model: str = “mistral”
-# Personnalité
-personality: str = “”“Tu es JARVIS, un assistant IA sophistiqué et élégant.
+# ✅ MODE OPENROUTER (gratuit, sans carte bancaire)
+# Créez votre clé sur : https://openrouter.ai → Sign in → Keys → Create Key
+mode: str = “openrouter”
+openrouter_api_key: str = os.getenv(“OPENROUTER_API_KEY”, “COLLEZ_VOTRE_CLÉ_ICI”)
+
+```
+# Modèle gratuit à utiliser (tous gratuits sur OpenRouter avec :free)
+# Options recommandées :
+#   "meta-llama/llama-4-scout:free"     → Llama 4 (très bon)
+#   "mistralai/mistral-7b-instruct:free" → Mistral 7B (léger)
+#   "google/gemma-3-12b-it:free"         → Gemma 3 (Google)
+#   "deepseek/deepseek-r1:free"          → DeepSeek R1 (raisonnement)
+model: str = "meta-llama/llama-4-scout:free"
+
+# URL de l'API OpenRouter (compatible format OpenAI)
+openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
+# -- Mode LLM local (Ollama) — alternative offline totale --
+local_llm_url: str = "http://localhost:11434/api/generate"
+local_llm_model: str = "mistral"
+
+# Personnalité de JARVIS
+personality: str = """Tu es JARVIS, un assistant IA sophistiqué et élégant.
+```
+
 Tu es direct, efficace, légèrement sarcastique mais toujours serviable.
 Tu réponds en français par défaut. Tes réponses sont concises (max 2-3 phrases).
 Tu peux exécuter des commandes système, lancer des applications et aider l’utilisateur.”””
@@ -38,25 +53,21 @@ max_tokens: int = 300
 
 @dataclass
 class SpeechConfig:
-# STT: “whisper” | “google” | “vosk”
 stt_engine: str = “whisper”
 whisper_model: str = “base”  # tiny, base, small, medium
-# TTS: “pyttsx3” | “gtts” | “elevenlabs”
 tts_engine: str = “pyttsx3”
-tts_rate: int = 175           # Vitesse de parole
+tts_rate: int = 175
 tts_volume: float = 0.9
 voice_language: str = “fr”
 
 @dataclass
 class SecurityConfig:
-# Commandes système explicitement autorisées
 allowed_commands: List[str] = field(default_factory=lambda: [
-“open”, “start”, “xdg-open”,  # Lancer apps
-“ls”, “dir”, “pwd”,            # Navigation
-“echo”, “date”, “time”,        # Infos basiques
-“python”, “node”,              # Interpréteurs
+“open”, “start”, “xdg-open”,
+“ls”, “dir”, “pwd”,
+“echo”, “date”, “time”,
+“python”, “node”,
 ])
-# Applications explicitement autorisées
 allowed_apps: List[str] = field(default_factory=lambda: [
 “chrome”, “firefox”, “safari”, “edge”,
 “code”, “vscode”,
@@ -65,12 +76,10 @@ allowed_apps: List[str] = field(default_factory=lambda: [
 “spotify”, “vlc”,
 “calculator”, “notepad”,
 ])
-# Actions nécessitant confirmation explicite
 require_confirmation: List[str] = field(default_factory=lambda: [
 “rm”, “del”, “format”, “shutdown”, “reboot”,
 “kill”, “taskkill”,
 ])
-# Journalisation
 log_file: str = “jarvis_actions.log”
 log_level: str = “INFO”
 
@@ -87,16 +96,8 @@ ai: AIConfig = field(default_factory=AIConfig)
 speech: SpeechConfig = field(default_factory=SpeechConfig)
 security: SecurityConfig = field(default_factory=SecurityConfig)
 server: ServerConfig = field(default_factory=ServerConfig)
-
-```
-# Nom de l'assistant
-name: str = "JARVIS"
-# Activation par mot-clé (en plus des claps)
-hotword: str = "jarvis"
-# Mode debug
+name: str = “JARVIS”
+hotword: str = “jarvis”
 debug: bool = False
-```
-
-# Instance globale
 
 CONFIG = JarvisConfig()
