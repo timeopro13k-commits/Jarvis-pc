@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS</title>
+<style>
+  /* ── Reset & Base ──────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+–cyan:    #00d4ff;
+–cyan-dim: #0099bb;
+–blue:    #0047ff;
+–teal:    #00ffcc;
+–dark:    #020810;
+–panel:   rgba(0, 20, 40, 0.85);
+–border:  rgba(0, 212, 255, 0.2);
+–glow:    0 0 20px rgba(0, 212, 255, 0.4);
+–font-mono: ‘Courier New’, ‘Lucida Console’, monospace;
+}
+
+html, body {
+width: 100%; height: 100%;
+overflow: hidden;
+background: var(–dark);
+color: var(–cyan);
+font-family: var(–font-mono);
+user-select: none;
+}
+
+/* ── Canvas WebGL (arrière-plan animé) ────────── */
+#bg-canvas {
+position: fixed;
+inset: 0;
+z-index: 0;
+opacity: 0.85;
+}
+
+/* ── Overlay principal ────────────────────────── */
+#app {
+position: fixed;
+inset: 0;
+z-index: 10;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+pointer-events: none;
+}
+
+/* ── HUD Corners ──────────────────────────────── */
+.hud-corner {
+position: fixed;
+width: 80px; height: 80px;
+opacity: 0.5;
+pointer-events: none;
+}
+.hud-corner::before, .hud-corner::after {
+content: ‘’;
+position: absolute;
+background: var(–cyan);
+}
+.hud-corner::before { width: 2px; height: 40px; }
+.hud-corner::after  { width: 40px; height: 2px; }
+.hud-corner.tl { top: 24px; left: 24px; }
+.hud-corner.tl::before { top: 0; left: 0; }
+.hud-corner.tl::after  { top: 0; left: 0; }
+.hud-corner.tr { top: 24px; right: 24px; transform: scaleX(-1); }
+.hud-corner.tr::before { top: 0; left: 0; }
+.hud-corner.tr::after  { top: 0; left: 0; }
+.hud-corner.bl { bottom: 24px; left: 24px; transform: scaleY(-1); }
+.hud-corner.bl::before { top: 0; left: 0; }
+.hud-corner.bl::after  { top: 0; left: 0; }
+.hud-corner.br { bottom: 24px; right: 24px; transform: scale(-1); }
+.hud-corner.br::before { top: 0; left: 0; }
+.hud-corner.br::after  { top: 0; left: 0; }
+
+/* ── Scanlines ────────────────────────────────── */
+#scanlines {
+position: fixed;
+inset: 0;
+z-index: 5;
+background: repeating-linear-gradient(
+0deg,
+transparent,
+transparent 2px,
+rgba(0, 0, 0, 0.05) 2px,
+rgba(0, 0, 0, 0.05) 4px
+);
+pointer-events: none;
+animation: scanMove 8s linear infinite;
+}
+@keyframes scanMove {
+0%   { background-position: 0 0; }
+100% { background-position: 0 100px; }
+}
+
+/* ── Core orb (centre) ───────────────────────── */
+#orb-container {
+position: relative;
+width: 200px; height: 200px;
+display: flex; align-items: center; justify-content: center;
+margin-bottom: 32px;
+pointer-events: all;
+cursor: pointer;
+}
+
+#orb-ring-outer {
+position: absolute;
+inset: 0;
+border-radius: 50%;
+border: 1px solid rgba(0, 212, 255, 0.15);
+animation: orbRotateOuter 20s linear infinite;
+}
+#orb-ring-mid {
+position: absolute;
+inset: 16px;
+border-radius: 50%;
+border: 1px dashed rgba(0, 212, 255, 0.25);
+animation: orbRotateMid 12s linear infinite reverse;
+}
+#orb-ring-inner {
+position: absolute;
+inset: 32px;
+border-radius: 50%;
+border: 1.5px solid rgba(0, 212, 255, 0.4);
+animation: orbRotateInner 8s linear infinite;
+}
+
+@keyframes orbRotateOuter {
+from { transform: rotate(0deg) scale(1); }
+50%  { transform: rotate(180deg) scale(1.02); }
+to   { transform: rotate(360deg) scale(1); }
+}
+@keyframes orbRotateMid {
+from { transform: rotate(0deg); }
+to   { transform: rotate(360deg); }
+}
+@keyframes orbRotateInner {
+from { transform: rotate(0deg) scale(1); }
+50%  { transform: rotate(180deg) scale(0.97); }
+to   { transform: rotate(360deg) scale(1); }
+}
+
+#orb-core {
+position: relative;
+z-index: 2;
+width: 90px; height: 90px;
+border-radius: 50%;
+background: radial-gradient(circle at 35% 35%,
+rgba(0, 212, 255, 0.9),
+rgba(0, 71, 255, 0.6) 50%,
+rgba(0, 8, 16, 0.9)
+);
+box-shadow:
+0 0 30px rgba(0, 212, 255, 0.6),
+0 0 60px rgba(0, 212, 255, 0.3),
+0 0 100px rgba(0, 71, 255, 0.2),
+inset 0 0 20px rgba(0, 0, 0, 0.5);
+transition: all 0.3s ease;
+display: flex;
+align-items: center;
+justify-content: center;
+font-size: 11px;
+letter-spacing: 0.1em;
+color: rgba(255,255,255,0.7);
+text-transform: uppercase;
+}
+
+#orb-core.state-idle { animation: orbPulseIdle 3s ease-in-out infinite; }
+#orb-core.state-listening {
+background: radial-gradient(circle at 35% 35%,
+rgba(0, 255, 180, 0.9),
+rgba(0, 212, 255, 0.6) 50%,
+rgba(0, 8, 16, 0.9)
+);
+box-shadow:
+0 0 40px rgba(0, 255, 180, 0.8),
+0 0 80px rgba(0, 255, 180, 0.4);
+animation: orbPulseListen 0.8s ease-in-out infinite;
+}
+#orb-core.state-processing {
+animation: orbSpin 1s linear infinite;
+}
+#orb-core.state-speaking {
+animation: orbSpeak 0.3s ease-in-out infinite alternate;
+}
+#orb-core.state-waking {
+animation: orbWake 0.5s ease-out;
+}
+
+@keyframes orbPulseIdle {
+0%, 100% { box-shadow: 0 0 30px rgba(0,212,255,0.5), 0 0 60px rgba(0,212,255,0.2), inset 0 0 20px rgba(0,0,0,0.5); }
+50%       { box-shadow: 0 0 45px rgba(0,212,255,0.7), 0 0 80px rgba(0,212,255,0.3), inset 0 0 20px rgba(0,0,0,0.5); }
+}
+@keyframes orbPulseListen {
+0%   { transform: scale(1); }
+100% { transform: scale(1.08); }
+}
+@keyframes orbSpin {
+from { transform: rotate(0deg); }
+to   { transform: rotate(360deg); }
+}
+@keyframes orbSpeak {
+from { transform: scale(1); }
+to   { transform: scale(1 + var(–audio-scale, 0.05)); }
+}
+@keyframes orbWake {
+0%   { transform: scale(0.8); opacity: 0.5; }
+60%  { transform: scale(1.2); }
+100% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Nom JARVIS ───────────────────────────────── */
+#jarvis-name {
+font-size: 42px;
+font-weight: 100;
+letter-spacing: 0.5em;
+color: var(–cyan);
+text-shadow: var(–glow), 0 0 60px rgba(0, 212, 255, 0.3);
+text-transform: uppercase;
+margin-bottom: 8px;
+animation: nameGlow 4s ease-in-out infinite;
+}
+@keyframes nameGlow {
+0%, 100% { text-shadow: 0 0 20px rgba(0,212,255,0.4), 0 0 60px rgba(0,212,255,0.2); }
+50%       { text-shadow: 0 0 30px rgba(0,212,255,0.7), 0 0 80px rgba(0,212,255,0.4); }
+}
+
+#status-text {
+font-size: 11px;
+letter-spacing: 0.3em;
+color: rgba(0, 212, 255, 0.5);
+text-transform: uppercase;
+min-height: 16px;
+transition: all 0.3s ease;
+margin-bottom: 40px;
+}
+#status-text.active { color: var(–teal); }
+
+/* ── Visualiseur audio ───────────────────────── */
+#audio-viz {
+display: flex;
+align-items: center;
+gap: 4px;
+height: 48px;
+margin-bottom: 32px;
+opacity: 0.3;
+transition: opacity 0.5s;
+}
+#audio-viz.active { opacity: 1; }
+
+.viz-bar {
+width: 3px;
+background: linear-gradient(to top, var(–blue), var(–cyan));
+border-radius: 2px;
+transition: height 0.05s ease;
+min-height: 3px;
+}
+
+/* ── Panneau de texte ────────────────────────── */
+#text-panel {
+background: var(–panel);
+border: 1px solid var(–border);
+border-radius: 2px;
+padding: 16px 24px;
+max-width: 560px;
+width: 100%;
+backdrop-filter: blur(12px);
+position: relative;
+pointer-events: all;
+}
+#text-panel::before {
+content: ‘’;
+position: absolute;
+top: 0; left: 0;
+width: 40px; height: 2px;
+background: var(–cyan);
+box-shadow: var(–glow);
+}
+
+#response-text {
+font-size: 13px;
+line-height: 1.7;
+color: rgba(255,255,255,0.85);
+min-height: 20px;
+letter-spacing: 0.02em;
+margin-bottom: 16px;
+transition: opacity 0.3s;
+}
+
+/* ── Input texte ──────────────────────────────── */
+#input-area {
+display: flex;
+gap: 8px;
+align-items: center;
+}
+
+#text-input {
+flex: 1;
+background: rgba(0, 212, 255, 0.05);
+border: 1px solid var(–border);
+border-radius: 2px;
+padding: 8px 12px;
+color: var(–cyan);
+font-family: var(–font-mono);
+font-size: 12px;
+letter-spacing: 0.05em;
+outline: none;
+transition: border-color 0.2s, box-shadow 0.2s;
+}
+#text-input:focus {
+border-color: rgba(0, 212, 255, 0.6);
+box-shadow: 0 0 12px rgba(0, 212, 255, 0.2);
+}
+#text-input::placeholder { color: rgba(0, 212, 255, 0.25); }
+
+#send-btn {
+background: rgba(0, 212, 255, 0.1);
+border: 1px solid var(–border);
+border-radius: 2px;
+padding: 8px 16px;
+color: var(–cyan);
+font-family: var(–font-mono);
+font-size: 11px;
+letter-spacing: 0.1em;
+cursor: pointer;
+transition: all 0.2s;
+text-transform: uppercase;
+}
+#send-btn:hover {
+background: rgba(0, 212, 255, 0.2);
+box-shadow: var(–glow);
+}
+
+/* ── Infos système ────────────────────────────── */
+#sys-info {
+position: fixed;
+bottom: 32px;
+left: 32px;
+font-size: 10px;
+letter-spacing: 0.15em;
+color: rgba(0, 212, 255, 0.3);
+line-height: 1.8;
+pointer-events: none;
+}
+
+#conn-status {
+position: fixed;
+top: 32px;
+right: 32px;
+font-size: 10px;
+letter-spacing: 0.15em;
+display: flex;
+align-items: center;
+gap: 8px;
+color: rgba(0, 212, 255, 0.4);
+}
+#conn-dot {
+width: 6px; height: 6px;
+border-radius: 50%;
+background: rgba(0, 212, 255, 0.3);
+transition: background 0.3s;
+}
+#conn-dot.connected { background: var(–teal); box-shadow: 0 0 8px var(–teal); }
+#conn-dot.error { background: #ff3355; box-shadow: 0 0 8px #ff3355; }
+
+/* ── Clap hint ────────────────────────────────── */
+#clap-hint {
+position: fixed;
+bottom: 32px;
+right: 32px;
+font-size: 10px;
+letter-spacing: 0.1em;
+color: rgba(0, 212, 255, 0.25);
+text-align: right;
+pointer-events: none;
+}
+
+/* ── Notification flash ───────────────────────── */
+#notification {
+position: fixed;
+top: 50px;
+left: 50%;
+transform: translateX(-50%);
+background: rgba(0, 255, 180, 0.1);
+border: 1px solid rgba(0, 255, 180, 0.4);
+padding: 8px 24px;
+font-size: 11px;
+letter-spacing: 0.2em;
+color: var(–teal);
+text-transform: uppercase;
+opacity: 0;
+transition: opacity 0.3s;
+pointer-events: none;
+z-index: 100;
+backdrop-filter: blur(8px);
+}
+#notification.show { opacity: 1; }
+
+/* ── Typing cursor ────────────────────────────── */
+.cursor::after {
+content: ‘▋’;
+animation: blink 1s step-end infinite;
+opacity: 0.7;
+}
+@keyframes blink { 0%, 100% { opacity: 0.7; } 50% { opacity: 0; } }
+</style>
+
+</head>
+<body>
+
+<!-- Canvas WebGL background -->
+
+<canvas id="bg-canvas"></canvas>
+
+<!-- Scanlines overlay -->
+
+<div id="scanlines"></div>
+
+<!-- HUD corners -->
+
+<div class="hud-corner tl"></div>
+<div class="hud-corner tr"></div>
+<div class="hud-corner bl"></div>
+<div class="hud-corner br"></div>
+
+<!-- Connection status -->
+
+<div id="conn-status">
+  <div id="conn-dot"></div>
+  <span id="conn-label">OFFLINE</span>
+</div>
+
+<!-- Notification -->
+
+<div id="notification"></div>
+
+<!-- Main UI -->
+
+<div id="app">
+  <!-- Orb central -->
+  <div id="orb-container" onclick="simulateClap()">
+    <div id="orb-ring-outer"></div>
+    <div id="orb-ring-mid"></div>
+    <div id="orb-ring-inner"></div>
+    <div id="orb-core" class="state-idle">JARVIS</div>
+  </div>
+
+  <!-- Nom et statut -->
+
+  <div id="jarvis-name">J·A·R·V·I·S</div>
+  <div id="status-text">Système en veille — Double clap pour activer</div>
+
+  <!-- Visualiseur audio -->
+
+  <div id="audio-viz"></div>
+
+  <!-- Panneau texte -->
+
+  <div id="text-panel">
+    <div id="response-text">Prêt. Dites votre commande ou tapez ci-dessous.</div>
+    <div id="input-area">
+      <input
+        id="text-input"
+        type="text"
+        placeholder="Entrez une commande..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button id="send-btn" onclick="sendTextCommand()">Envoyer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Infos système -->
+
+<div id="sys-info">
+  <div id="sys-time">--:--:--</div>
+  <div id="sys-date">----/--/--</div>
+</div>
+
+<!-- Hint -->
+
+<div id="clap-hint">
+  DOUBLE CLAP → ACTIVATION<br>
+  CLIC ORB → SIMULATION
+</div>
+
+<script>
+// ─── WebGL Wave Animation ────────────────────────────────────────────────────
+const canvas = document.getElementById('bg-canvas');
+const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+
+function resizeCanvas() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// Si WebGL non dispo, fallback Canvas 2D
+if (!gl) {
+  renderCanvas2D();
+} else {
+  initWebGL();
+}
+
+function initWebGL() {
+  // ── Shaders GLSL ──────────────────────────────────────────────────────────
+  const vsSource = `
+    attribute vec2 a_pos;
+    void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+  `;
+
+  const fsSource = `
+    precision mediump float;
+    uniform float u_time;
+    uniform vec2  u_res;
+    uniform float u_audio;
+    uniform float u_state; // 0=idle,1=listen,2=process,3=speak
+
+    #define PI 3.14159265358979
+
+    // Palettes de couleurs
+    vec3 colorIdle(float t) {
+      return mix(
+        vec3(0.0, 0.18, 0.35),
+        vec3(0.0, 0.52, 0.65),
+        t
+      );
+    }
+    vec3 colorListen(float t) {
+      return mix(
+        vec3(0.0, 0.25, 0.35),
+        vec3(0.0, 0.85, 0.65),
+        t
+      );
+    }
+
+    // Onde carrée (square wave distordue)
+    float squareWave(vec2 uv, float time, float speed, float scale, float intensity) {
+      vec2 p = uv * scale;
+      // Distorsion ondulante
+      p.x += sin(p.y * 3.0 + time * speed) * 0.15;
+      p.y += cos(p.x * 2.5 + time * speed * 0.7) * 0.1;
+      
+      // Grille de carrés
+      vec2 id = floor(p);
+      vec2 f  = fract(p);
+      
+      // Distance au centre de la cellule
+      float dist = length(uv);
+      
+      // Wave depuis le centre
+      float wave = sin(dist * 8.0 - time * speed * 2.0) * 0.5 + 0.5;
+      
+      // Taille des carrés qui pulse avec l'onde
+      float sz = 0.3 + wave * 0.35 * intensity;
+      
+      // Bord arrondi des carrés
+      vec2 b = smoothstep(vec2(0.5 - sz), vec2(0.5 - sz + 0.04), f)
+             - smoothstep(vec2(0.5 + sz - 0.04), vec2(0.5 + sz), f);
+      float square = b.x * b.y;
+      
+      return square * wave;
+    }
+
+    void main() {
+      vec2 uv = (gl_FragCoord.xy - u_res * 0.5) / min(u_res.x, u_res.y);
+      float t  = u_time;
+      float dist = length(uv);
+      
+      // ── Couche 1 : vague de carrés principale ─────────────────────────────
+      float w1 = squareWave(uv, t, 0.6, 6.0, 1.0 + u_audio * 2.0);
+      float w2 = squareWave(uv * 1.4, t * 1.1, 0.45, 8.0, 0.7);
+      float w3 = squareWave(uv * 0.7, t * 0.8, 0.55, 4.0, 0.5);
+      
+      // ── Couleur selon l'état ──────────────────────────────────────────────
+      vec3 col;
+      if (u_state < 0.5) {         // Idle
+        col = colorIdle(w1 * 0.7 + w2 * 0.2 + w3 * 0.1);
+      } else if (u_state < 1.5) {  // Listening
+        col = colorListen(w1 * 0.6 + w2 * 0.3 + w3 * 0.1);
+        col *= 1.2;
+      } else {                     // Processing/Speaking
+        col = mix(colorIdle(w1), colorListen(w2), sin(t * 3.0) * 0.5 + 0.5);
+        col *= 1.3;
+      }
+      
+      // ── Vignette circulaire ───────────────────────────────────────────────
+      float vig = 1.0 - smoothstep(0.4, 1.2, dist);
+      col *= vig * 0.85;
+      
+      // ── Halo central ──────────────────────────────────────────────────────
+      float halo = exp(-dist * 3.5) * (0.15 + u_audio * 0.3);
+      col += vec3(0.0, 0.5, 0.8) * halo;
+      
+      // ── Fade global ───────────────────────────────────────────────────────
+      col *= 0.9;
+      
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `;
+
+  function compileShader(src, type) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      console.error('Shader error:', gl.getShaderInfoLog(sh));
+      return null;
+    }
+    return sh;
+  }
+
+  const vs = compileShader(vsSource, gl.VERTEX_SHADER);
+  const fs = compileShader(fsSource, gl.FRAGMENT_SHADER);
+
+  const program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  // Quad plein écran
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1,-1,  1,-1,  -1,1,
+     1,-1,  1, 1,  -1,1,
+  ]), gl.STATIC_DRAW);
+
+  const aPosLoc = gl.getAttribLocation(program, 'a_pos');
+  gl.enableVertexAttribArray(aPosLoc);
+  gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const uTimeLoc  = gl.getUniformLocation(program, 'u_time');
+  const uResLoc   = gl.getUniformLocation(program, 'u_res');
+  const uAudioLoc = gl.getUniformLocation(program, 'u_audio');
+  const uStateLoc = gl.getUniformLocation(program, 'u_state');
+
+  const startTime = performance.now();
+  let glState = 0; // 0=idle, 1=listen, 2=process, 3=speak
+
+  function render(now) {
+    gl.uniform1f(uTimeLoc,  (now - startTime) / 1000);
+    gl.uniform2f(uResLoc,   canvas.width, canvas.height);
+    gl.uniform1f(uAudioLoc, window._audioLevel || 0);
+    gl.uniform1f(uStateLoc, glState);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+
+  // Expose state setter pour l'app
+  window.setGLState = (s) => { glState = s; };
+}
+
+// Fallback Canvas 2D si WebGL non disponible
+function renderCanvas2D() {
+  const ctx = canvas.getContext('2d');
+  const startTime = Date.now();
+  
+  function draw() {
+    const t = (Date.now() - startTime) / 1000;
+    const W = canvas.width, H = canvas.height;
+    const cx = W / 2, cy = H / 2;
+    
+    ctx.fillStyle = '#020810';
+    ctx.fillRect(0, 0, W, H);
+    
+    // Grille de carrés en vague
+    const gridSize = 30;
+    const cols = Math.ceil(W / gridSize) + 2;
+    const rows = Math.ceil(H / gridSize) + 2;
+    
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = c * gridSize - gridSize;
+        const y = r * gridSize - gridSize;
+        const dx = (x + gridSize/2 - cx) / cx;
+        const dy = (y + gridSize/2 - cy) / cy;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const wave = Math.sin(dist * 6 - t * 1.5) * 0.5 + 0.5;
+        const size = gridSize * 0.25 * wave * (1 + (window._audioLevel || 0) * 2);
+        
+        if (size < 1) continue;
+        
+        const alpha = wave * 0.6 * Math.max(0, 1 - dist * 0.7);
+        ctx.fillStyle = `rgba(0, ${Math.floor(150 * wave)}, ${Math.floor(255 * wave)}, ${alpha})`;
+        ctx.fillRect(
+          x + gridSize/2 - size/2,
+          y + gridSize/2 - size/2,
+          size, size
+        );
+      }
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+  window.setGLState = () => {};
+}
+
+// ─── Visualiseur audio (barres) ──────────────────────────────────────────────
+const vizContainer = document.getElementById('audio-viz');
+const VIZ_BARS = 32;
+const bars = [];
+
+for (let i = 0; i < VIZ_BARS; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'viz-bar';
+  bar.style.height = '3px';
+  vizContainer.appendChild(bar);
+  bars.push(bar);
+}
+
+window._audioLevel = 0;
+let _vizLevels = new Array(VIZ_BARS).fill(0);
+
+function updateViz(level) {
+  window._audioLevel = level;
+  
+  const orbCore = document.getElementById('orb-core');
+  orbCore.style.setProperty('--audio-scale', level * 0.15);
+  
+  // Distribution en forme de cloche autour du centre
+  const center = VIZ_BARS / 2;
+  for (let i = 0; i < VIZ_BARS; i++) {
+    const dist = Math.abs(i - center) / center;
+    const gaussian = Math.exp(-dist * dist * 4);
+    const noise = (Math.random() - 0.5) * 0.3;
+    const target = level * gaussian * (1 + noise) * 46;
+    _vizLevels[i] = _vizLevels[i] * 0.7 + target * 0.3; // Lissage
+    bars[i].style.height = Math.max(3, _vizLevels[i]) + 'px';
+  }
+  
+  if (level > 0.02) {
+    vizContainer.classList.add('active');
+  } else {
+    vizContainer.classList.remove('active');
+  }
+}
+
+// Animation idle du viz
+setInterval(() => {
+  if (!window._wsConnected) {
+    const idleLevel = Math.sin(Date.now() / 2000) * 0.03 + 0.02;
+    updateViz(idleLevel);
+  }
+}, 50);
+
+// ─── Horloge système ─────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('sys-time').textContent = 
+    now.toTimeString().slice(0, 8);
+  document.getElementById('sys-date').textContent = 
+    now.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toUpperCase();
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ─── État UI ─────────────────────────────────────────────────────────────────
+const States = { IDLE: 0, LISTENING: 1, PROCESSING: 2, SPEAKING: 3 };
+let currentState = States.IDLE;
+
+function setState(state) {
+  currentState = state;
+  const orb = document.getElementById('orb-core');
+  const statusEl = document.getElementById('status-text');
+  
+  orb.className = 'state-' + ['idle','listening','processing','speaking'][state];
+  
+  const labels = [
+    'Système en veille — Double clap pour activer',
+    'En écoute... Parlez maintenant',
+    'Traitement en cours...',
+    'Réponse en cours...',
+  ];
+  statusEl.textContent = labels[state];
+  statusEl.className = state !== States.IDLE ? 'active' : '';
+  
+  window.setGLState(state);
+}
+
+function showNotification(msg, duration = 2500) {
+  const el = document.getElementById('notification');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), duration);
+}
+
+function typeText(text) {
+  const el = document.getElementById('response-text');
+  el.className = 'cursor';
+  el.textContent = '';
+  
+  let i = 0;
+  const interval = setInterval(() => {
+    if (i < text.length) {
+      el.textContent += text[i++];
+    } else {
+      clearInterval(interval);
+      el.className = '';
+    }
+  }, 18);
+}
+
+// ─── WebSocket ────────────────────────────────────────────────────────────────
+let ws = null;
+let reconnectTimer = null;
+window._wsConnected = false;
+
+function connectWS() {
+  const connDot   = document.getElementById('conn-dot');
+  const connLabel = document.getElementById('conn-label');
+  
+  try {
+    ws = new WebSocket('ws://localhost:8765/ws');
+    
+    ws.onopen = () => {
+      window._wsConnected = true;
+      connDot.className = 'connected';
+      connLabel.textContent = 'CONNECTÉ';
+      showNotification('JARVIS EN LIGNE');
+      console.log('WebSocket connecté');
+    };
+    
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      handleMessage(msg);
+    };
+    
+    ws.onclose = () => {
+      window._wsConnected = false;
+      connDot.className = 'error';
+      connLabel.textContent = 'OFFLINE';
+      setState(States.IDLE);
+      
+      // Reconnexion automatique
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectWS, 3000);
+    };
+    
+    ws.onerror = () => {
+      connDot.className = 'error';
+      connLabel.textContent = 'ERREUR';
+    };
+  } catch(e) {
+    console.warn('WebSocket non disponible, mode démo');
+    connLabel.textContent = 'DEMO';
+  }
+}
+
+function sendWS(data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
+function handleMessage(msg) {
+  switch(msg.type) {
+    case 'init':
+      console.log('JARVIS initialisé:', msg.config);
+      break;
+    
+    case 'status':
+      handleStatus(msg.status, msg.data);
+      break;
+    
+    case 'speak':
+      setState(States.SPEAKING);
+      typeText(msg.text);
+      setTimeout(() => setState(States.IDLE), 3000);
+      break;
+    
+    case 'audio_level':
+      updateViz(msg.level);
+      break;
+    
+    case 'pong':
+      console.log('Pong:', msg.timestamp);
+      break;
+  }
+}
+
+function handleStatus(status, data) {
+  switch(status) {
+    case 'waking':
+      showNotification('ACTIVATION DÉTECTÉE');
+      setState(States.LISTENING);
+      // Clignote les anneaux
+      document.getElementById('orb-container').style.animation = 'none';
+      break;
+    
+    case 'listening':
+      setState(States.LISTENING);
+      break;
+    
+    case 'processing':
+      setState(States.PROCESSING);
+      if (data.command) {
+        typeText(`"${data.command}" — Traitement...`);
+      }
+      break;
+    
+    case 'idle':
+      setState(States.IDLE);
+      break;
+    
+    case 'sleeping':
+      setState(States.IDLE);
+      showNotification('JARVIS EN VEILLE');
+      break;
+    
+    case 'action':
+      showNotification(`✓ ${data.target || 'ACTION EXÉCUTÉE'}`);
+      break;
+  }
+}
+
+// ─── Interactions utilisateur ─────────────────────────────────────────────────
+function sendTextCommand() {
+  const input = document.getElementById('text-input');
+  const text = input.value.trim();
+  if (!text) return;
+  
+  input.value = '';
+  
+  if (window._wsConnected) {
+    sendWS({ type: 'text_command', text });
+    setState(States.PROCESSING);
+    typeText(`"${text}" — Traitement...`);
+  } else {
+    // Mode démo sans backend
+    demoProcess(text);
+  }
+}
+
+function simulateClap() {
+  if (window._wsConnected) {
+    sendWS({ type: 'simulate_clap' });
+  } else {
+    // Mode démo
+    setState(States.LISTENING);
+    showNotification('EN ÉCOUTE...');
+    setTimeout(() => setState(States.IDLE), 3000);
+  }
+}
+
+// Entrée clavier
+document.getElementById('text-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendTextCommand();
+});
+
+// Mode démo (sans backend)
+function demoProcess(text) {
+  setState(States.PROCESSING);
+  setTimeout(() => {
+    setState(States.SPEAKING);
+    const responses = {
+      default: "Je suis JARVIS. Le backend Python n'est pas connecté. Lancez `python backend/main.py` pour activer toutes les fonctionnalités.",
+    };
+    
+    let response = responses.default;
+    if (text.toLowerCase().includes('bonjour')) {
+      response = "Bonjour. Tous les systèmes sont opérationnels. Mode démonstration actif.";
+    } else if (text.toLowerCase().includes('heure')) {
+      response = `Il est ${new Date().toLocaleTimeString('fr-FR')}.`;
+    }
+    
+    typeText(response);
+    setTimeout(() => setState(States.IDLE), 4000);
+  }, 1200);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+connectWS();
+setState(States.IDLE);
+
+// Fallback démo si pas de backend après 2s
+setTimeout(() => {
+  if (!window._wsConnected) {
+    document.getElementById('conn-label').textContent = 'DÉMO';
+    typeText("Mode démonstration actif. Connectez le backend pour les fonctionnalités complètes.");
+  }
+}, 2000);
+</script>
+
+</body>
+</html>
