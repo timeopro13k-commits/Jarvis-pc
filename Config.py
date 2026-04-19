@@ -1,8 +1,7 @@
 # Config.py
 
 “””
-Configuration centrale de JARVIS.
-Modifier ce fichier pour personnaliser le comportement.
+Configuration centrale de JARVIS — Mode 100% offline, aucune clé requise.
 “””
 
 import os
@@ -14,47 +13,36 @@ class AudioConfig:
 sample_rate: int = 44100
 channels: int = 1
 chunk_size: int = 1024
-clap_threshold: float = 0.35       # Sensibilité (0.1 = très sensible, 0.9 = peu sensible)
-clap_min_interval: float = 0.1     # Secondes min entre 2 claps
-clap_max_interval: float = 0.6     # Secondes max entre 2 claps
-clap_cooldown: float = 1.5         # Pause après détection
+clap_threshold: float = 0.35
+clap_min_interval: float = 0.1
+clap_max_interval: float = 0.6
+clap_cooldown: float = 1.5
 
 @dataclass
 class AIConfig:
-# ✅ MODE OPENROUTER (gratuit, sans carte bancaire)
-# Créez votre clé sur : https://openrouter.ai → Sign in → Keys → Create Key
-mode: str = “openrouter”
-openrouter_api_key: str = os.getenv(“OPENROUTER_API_KEY”, “COLLEZ_VOTRE_CLÉ_ICI”)
+# ✅ MODE OFFLINE TOTAL — aucune clé, aucune connexion
+# “offline”   → réponses par patterns locaux (léger, instantané)
+# “local_llm” → Ollama en local (plus intelligent, nécessite Ollama installé)
+mode: str = “offline”
 
 ```
-# Modèle gratuit à utiliser (tous gratuits sur OpenRouter avec :free)
-# Options recommandées :
-#   "meta-llama/llama-4-scout:free"     → Llama 4 (très bon)
-#   "mistralai/mistral-7b-instruct:free" → Mistral 7B (léger)
-#   "google/gemma-3-12b-it:free"         → Gemma 3 (Google)
-#   "deepseek/deepseek-r1:free"          → DeepSeek R1 (raisonnement)
-model: str = "meta-llama/llama-4-scout:free"
-
-# URL de l'API OpenRouter (compatible format OpenAI)
-openrouter_base_url: str = "https://openrouter.ai/api/v1"
-
-# -- Mode LLM local (Ollama) — alternative offline totale --
+# Si vous installez Ollama (https://ollama.ai) :
+# 1. Changez mode = "local_llm"
+# 2. Lancez : ollama pull mistral
 local_llm_url: str = "http://localhost:11434/api/generate"
 local_llm_model: str = "mistral"
 
-# Personnalité de JARVIS
 personality: str = """Tu es JARVIS, un assistant IA sophistiqué et élégant.
 ```
 
 Tu es direct, efficace, légèrement sarcastique mais toujours serviable.
-Tu réponds en français par défaut. Tes réponses sont concises (max 2-3 phrases).
-Tu peux exécuter des commandes système, lancer des applications et aider l’utilisateur.”””
+Tu réponds en français. Tes réponses sont concises (max 2-3 phrases).”””
 max_tokens: int = 300
 
 @dataclass
 class SpeechConfig:
 stt_engine: str = “whisper”
-whisper_model: str = “base”  # tiny, base, small, medium
+whisper_model: str = “base”
 tts_engine: str = “pyttsx3”
 tts_rate: int = 175
 tts_volume: float = 0.9
