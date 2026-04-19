@@ -1,0 +1,38 @@
+# requirements.txt — Backend JARVIS
+
+# Installation : pip install -r requirements.txt
+
+# ── Serveur ─────────────────────────────────────────────
+
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+
+# ── Audio ────────────────────────────────────────────────
+
+sounddevice>=0.4.6
+numpy>=1.24.0
+
+# ── STT (Speech-to-Text) ─────────────────────────────────
+
+openai-whisper>=20231117     # STT offline (nécessite ffmpeg)
+
+# vosk>=0.3.45               # Alternative plus légère
+
+# ── TTS (Text-to-Speech) ─────────────────────────────────
+
+pyttsx3>=2.90                # TTS offline cross-platform
+
+# ── IA / API ─────────────────────────────────────────────
+
+httpx>=0.25.0                # HTTP async pour API calls
+
+# ── Système ──────────────────────────────────────────────
+
+psutil>=5.9.0               # Infos système (CPU, RAM, etc.)
+
+# ── Optionnels ───────────────────────────────────────────
+
+# torch>=2.0.0              # Si vous utilisez whisper avec GPU
+
+# openai>=1.0.0             # SDK officiel OpenAI (alternatif à httpx)
