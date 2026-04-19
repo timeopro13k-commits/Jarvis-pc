@@ -85,8 +85,8 @@ winget install ffmpeg
 ### 1. Cloner et préparer
 
 ```bash
-git clone https://github.com/vous/jarvis.git
-cd jarvis
+git clone https://github.com/vous/jarvis-pc.git
+cd jarvis-pc
 ```
 
 ### 2. Backend Python
